@@ -454,9 +454,79 @@ final class TabBarBridge {
     }
 
     /**
-     * Page transition animation disabled: keep host app's native hard-cut page transition.
+     * Slot whose page the backdrop pager is actually showing, or -1 when that
+     * cannot be established.
+     *
+     * <p>Asked reflectively because the two hosts ship different pagers —
+     * WeChat's own {@code ViewPager} subclass, QQ's {@code ViewPager2} — and
+     * {@code getCurrentItem()} is the one accessor both carry.
+     *
+     * <p>Only a row in which every child takes part in the layout is trusted. A
+     * GONE tab shifts every later page by one, and following the page is not
+     * worth putting the droplet on the wrong tab for.
+     */
+    static int pageSlot(ViewGroup pager, ViewGroup tabRow) {
+        if (pager == null || tabRow == null
+                || tabCount(tabRow) != tabRow.getChildCount()) {
+            return -1;
+        }
+        int index = currentItem(pager);
+        return index >= 0 && tabAt(tabRow, index) != null ? index : -1;
+    }
+
+    /** The pager's current page, or -1 when it is not a pager we can ask. */
+    static int currentItem(Object pager) {
+        if (pager == null) {
+            return -1;
+        }
+        Method getter = pageGetter(pager.getClass());
+        if (getter == null) {
+            return -1;
+        }
+        try {
+            Object value = getter.invoke(pager);
+            if (value instanceof Integer) {
+                return (Integer) value;
+            }
+        } catch (Throwable ignored) {
+        }
+        return -1;
+    }
+
+    /** Pager class → its page getter; the callers run on every frame. */
+    private static final java.util.HashMap<Class<?>, Method> sPageGetters =
+            new java.util.HashMap<>();
+    private static final java.util.HashSet<Class<?>> sNotAPager = new java.util.HashSet<>();
+
+    private static Method pageGetter(Class<?> pagerClass) {
+        Method cached = sPageGetters.get(pagerClass);
+        if (cached != null) {
+            return cached;
+        }
+        if (sNotAPager.contains(pagerClass)) {
+            return null;
+        }
+        Method found = null;
+        try {
+            found = pagerClass.getMethod("getCurrentItem");
+        } catch (Throwable ignored) {
+            // A backdrop that is not a pager at all: remembered as an answer of
+            // its own, so the lookup happens once rather than per frame.
+        }
+        if (found == null) {
+            sNotAPager.add(pagerClass);
+        } else {
+            sPageGetters.put(pagerClass, found);
+        }
+        return found;
+    }
+
+    /**
+     * Left as a no-op on purpose: a tab tap reaches the host's own
+     * {@code setCurrentItem(index, false)} untouched, so pages keep the
+     * hard cut both apps ship. Nothing here rewrites that flag.
      */
     static void tryHookPager(ViewGroup pager) {
-        // Disabled: keep host app's native hard-cut page transition (no sliding animation).
+        // Intentionally empty: native hard-cut page transition, no slide.
     }
 }
